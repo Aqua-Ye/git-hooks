@@ -7,13 +7,19 @@ COMMIT_MSG_CONTENT=$ORIGINAL_COMMIT_MSG
 # Get the current branch name
 BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
 
-# Use basename only so path segments (e.g. cursor/…) are never treated as ticket IDs
-BRANCH_BASENAME="${BRANCH_NAME##*/}"
-
-# JIRA-style ticket at start of basename: PROJECT-123
-TICKET_NUMBER=$(echo "$BRANCH_BASENAME" | sed -n -E 's/^([A-Z][A-Z0-9]+-[0-9]+).*/\1/p')
-# Release suffix after ticket: PROJECT-123-1.2.3
-RELEASE_NUMBER=$(echo "$BRANCH_BASENAME" | sed -n -E 's/^[A-Z][A-Z0-9]+-[0-9]+-([0-9]+\.[0-9]+).*/\1/p')
+# Scan path segments for JIRA-style ticket (e.g. HLX-4584/dip-hierarchy-mapping).
+# Basename-only matching misses tickets in parent segments; skip segments without PROJECT-123.
+TICKET_NUMBER=""
+RELEASE_NUMBER=""
+for seg in ${(s:/:)BRANCH_NAME}; do
+  candidate_ticket=$(print -r -- "$seg" | sed -n -E 's/^([A-Z][A-Z0-9]+-[0-9]+).*/\1/p')
+  if [[ -n "$candidate_ticket" ]]; then
+    TICKET_NUMBER=$candidate_ticket
+    candidate_release=$(print -r -- "$seg" | sed -n -E 's/^[A-Z][A-Z0-9]+-[0-9]+-([0-9]+\.[0-9]+).*/\1/p')
+    [[ -n "$candidate_release" ]] && RELEASE_NUMBER=$candidate_release
+    break
+  fi
+done
 
 should_prepend_prefixes() {
   [[ $ORIGINAL_COMMIT_MSG != "["* && $ORIGINAL_COMMIT_MSG != " "* ]]

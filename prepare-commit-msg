@@ -1,16 +1,35 @@
 #!/bin/zsh
 
 COMMIT_MSG_FILE=$1
-COMMIT_MSG_CONTENT=$(cat "$COMMIT_MSG_FILE")
+ORIGINAL_COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+COMMIT_MSG_CONTENT=$ORIGINAL_COMMIT_MSG
 
-# Get the current branch name and check if it is excluded
-BRANCH_NAME=$(git symbolic-ref --short HEAD)
+# Get the current branch name
+BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
 
-# Trim it down to get the parts we're interested in
-TICKET_NUMBER=$(echo "$BRANCH_NAME" | sed -n -E 's:([a-zA-Z]+/)*([a-zA-Z]+-[0-9]+).*:\2:p')
-# Also extract release number
-RELEASE_NUMBER=$(echo "$BRANCH_NAME" | sed -n -E 's:([a-zA-Z]+/)*([a-zA-Z]+-[0-9]+)-([0-9]+\.[0-9]+).*:\3:p')
-# Prepend the release number identifier to the given message
-if [[ $RELEASE_NUMBER != '' && $COMMIT_MSG_CONTENT != "["* && $COMMIT_MSG_CONTENT != " "* ]]; then sed -i.bak -e "1s/^/[$RELEASE_NUMBER] /" "$COMMIT_MSG_FILE"; fi
-# Prepend the ticket number identifier to the given message
-if [[ $TICKET_NUMBER != '' && $COMMIT_MSG_CONTENT != "["* && $COMMIT_MSG_CONTENT != " "* ]]; then sed -i.bak -e "1s/^/[$TICKET_NUMBER] /" "$COMMIT_MSG_FILE"; fi
+# Use basename only so path segments (e.g. cursor/…) are never treated as ticket IDs
+BRANCH_BASENAME="${BRANCH_NAME##*/}"
+
+# JIRA-style ticket at start of basename: PROJECT-123
+TICKET_NUMBER=$(echo "$BRANCH_BASENAME" | sed -n -E 's/^([A-Z][A-Z0-9]+-[0-9]+).*/\1/p')
+# Release suffix after ticket: PROJECT-123-1.2.3
+RELEASE_NUMBER=$(echo "$BRANCH_BASENAME" | sed -n -E 's/^[A-Z][A-Z0-9]+-[0-9]+-([0-9]+\.[0-9]+).*/\1/p')
+
+should_prepend_prefixes() {
+  [[ $ORIGINAL_COMMIT_MSG != "["* && $ORIGINAL_COMMIT_MSG != " "* ]]
+}
+
+prepend_to_commit_msg() {
+  local prefix=$1
+  if [[ -n "$prefix" ]] && should_prepend_prefixes; then
+    COMMIT_MSG_CONTENT="[$prefix] $COMMIT_MSG_CONTENT"
+  fi
+}
+
+# Prepend release, then ticket (same order as before)
+prepend_to_commit_msg "$RELEASE_NUMBER"
+prepend_to_commit_msg "$TICKET_NUMBER"
+
+if [[ $COMMIT_MSG_CONTENT != $ORIGINAL_COMMIT_MSG ]]; then
+  print -r -- "$COMMIT_MSG_CONTENT" >"$COMMIT_MSG_FILE"
+fi
